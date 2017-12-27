@@ -4,18 +4,22 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"log"
 	"os"
+
+	"github.com/tddhit/tools/log"
 )
 
 type IndexBlock struct {
 	writer *bufio.Writer
+	offset uint32
 	size   uint32
 }
 
-func NewIndexBlock(file *os.File) *IndexBlock {
+func NewIndexBlock(file *os.File, offset uint32) *IndexBlock {
+	file.Seek(int64(offset), os.SEEK_SET)
 	b := &IndexBlock{
-		writer: bufio.NewWriterSize(file, MAX_BUFFER_SIZE),
+		offset: offset,
+		writer: bufio.NewWriter(file),
 	}
 	return b
 }
@@ -27,19 +31,23 @@ func (b *IndexBlock) Add(key []byte, offset, size uint32) {
 		log.Fatal(err)
 	}
 	b.writer.Write(buf.Bytes())
+	log.Debug(buf.Bytes())
 	buf = new(bytes.Buffer)
 	err = binary.Write(buf, binary.LittleEndian, uint32(offset))
 	if err != nil {
 		log.Fatal(err)
 	}
 	b.writer.Write(buf.Bytes())
+	log.Debug(buf.Bytes())
 	buf = new(bytes.Buffer)
 	err = binary.Write(buf, binary.LittleEndian, uint32(size))
 	if err != nil {
 		log.Fatal(err)
 	}
 	b.writer.Write(buf.Bytes())
+	log.Debug(buf.Bytes())
 	b.writer.Write(key)
+	log.Debug(string(key))
 	b.size += uint32(len(key)) + 12
 }
 

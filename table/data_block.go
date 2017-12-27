@@ -4,8 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"log"
 	"os"
+
+	"github.com/tddhit/tools/log"
 )
 
 type DataBlock struct {
@@ -16,6 +17,7 @@ type DataBlock struct {
 }
 
 func NewDataBlock(file *os.File, offset uint32) *DataBlock {
+	file.Seek(int64(offset), os.SEEK_SET)
 	b := &DataBlock{
 		writer: bufio.NewWriterSize(file, MAX_DATABLOCK_SIZE),
 		offset: offset,
@@ -33,6 +35,8 @@ func (b *DataBlock) Add(key, value []byte) {
 		log.Fatal(err)
 	}
 	b.writer.Write(buf.Bytes())
+	log.Debug(b.offset)
+	log.Debug(buf.Bytes())
 	buf = new(bytes.Buffer)
 	err = binary.Write(buf, binary.LittleEndian, uint32(len(value)))
 	if err != nil {
@@ -40,10 +44,14 @@ func (b *DataBlock) Add(key, value []byte) {
 	}
 	b.writer.Write(buf.Bytes())
 	b.writer.Write(key)
+	log.Debug(buf.Bytes())
+	log.Debug(string(key))
+	log.Debug(string(value))
 	b.writer.Write(value)
 	b.size += uint32(len(key)) + uint32(len(value)) + 8
 }
 
 func (b *DataBlock) Finish() {
 	b.writer.Flush()
+	log.Debug("DataBlock Finish.")
 }

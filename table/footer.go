@@ -17,7 +17,7 @@ type Footer struct {
 
 func NewFooter(file *os.File) *Footer {
 	f := &Footer{
-		writer: bufio.NewWriterSize(file, MAX_BUFFER_SIZE),
+		writer: bufio.NewWriter(file),
 		magic:  MAGIC,
 	}
 	return f
