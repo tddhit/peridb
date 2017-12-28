@@ -5,67 +5,69 @@ import (
 	"encoding/binary"
 	"log"
 	"os"
+	"sort"
 )
 
 type TableCache struct {
-	file    *os.File
-	indexs  Indexs
-	cacheId int
+	filename string
+	File     *os.File
+	CacheId  int
+	index    []struct {
+		key    []byte
+		offset uint32
+		size   uint32
+	}
 }
 
-type Index struct {
-	key    []byte
-	offset uint32
-	size   uint32
-}
-
-type Indexs []Index
-
-func (s Indexs) Len() int           { return len(s) }
-func (s Indexs) Swap(i, j int)      { s[i], j[j] = s[j], s[i] }
-func (s Indexs) Less(i, j int) bool { return bytes.Compare(s[i].key, s[j].key) == -1 }
-
-func NewTableCache(filename string) *TableCache {
-	tc := &TableCache{}
+func NewTableCache(filename string, cacheId int) *TableCache {
+	tc := &TableCache{
+		filename: filename,
+		CacheId:  cacheId,
+	}
 	file, err := os.Open(filename)
 	if err != nil {
 		log.Fatal(err)
 	}
-	tc.file = file
+	tc.File = file
 	return tc
 }
 
-func (tc *TableCache) readIndexBlock() {
-	tc.file.Seek(-8, os.SEEK_END)
+func (tc *TableCache) fill() {
+	tc.File.Seek(-8, os.SEEK_END)
 	buf := make([]byte, 8)
-	tc.file.Read(buf)
+	tc.File.Read(buf)
 	buf2 := bytes.NewBuffer(buf)
 	var (
-		offset uint32
-		size   uint32
+		offset    uint32
+		size      uint32
+		keyLength uint32
+		key       []byte
 	)
 	binary.Read(buf2, binary.LittleEndian, &offset)
 	binary.Read(buf2, binary.LittleEndian, &size)
-	tc.file.Seek(offset, os.SEEK_SET)
+	tc.File.Seek(int64(offset), os.SEEK_SET)
 	buf = make([]byte, size)
-	tc.file.Read(buf)
+	tc.File.Read(buf)
 	buf2 = bytes.NewBuffer(buf)
 	for buf2.Len() != 0 {
 		binary.Read(buf2, binary.LittleEndian, &keyLength)
 		binary.Read(buf2, binary.LittleEndian, &offset)
 		binary.Read(buf2, binary.LittleEndian, &size)
-		key := make([]byte, keyLength)
+		key = make([]byte, keyLength)
 		binary.Read(buf2, binary.LittleEndian, key)
-		index := &Index{
-			key:    key,
-			offset: offset,
-			size:   size,
-		}
-		tc.index = append(tc.index, index)
+		tc.index = append(tc.index, struct {
+			key          []byte
+			offset, size uint32
+		}{key, offset, size})
 	}
-	sort.Sort(tc.indexs)
 }
 
-func (tc *TableCache) Get(key []byte) []byte {
-	i := sort.Search(len(tc.indexs), func(i int) bool { return bytes.Compare(tc.indexs[i].key, key) != -1 })
+func (tc *TableCache) Get(key []byte) (offset uint32, size uint32) {
+	i := sort.Search(len(tc.index), func(i int) bool { return bytes.Compare(tc.index[i].key, key) != -1 })
+	if i < len(tc.index) {
+		offset, size = tc.index[i].offset, tc.index[i].size
+		return
+	}
+	log.Panic("not found")
+	return
 }

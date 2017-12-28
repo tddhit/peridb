@@ -12,18 +12,21 @@ const (
 )
 
 type SSTable struct {
-	filename      string
+	Level         int
+	Filename      string
 	file          *os.File
 	footer        *Footer
 	indexBlock    *IndexBlock
 	dataBlocks    *list.List
 	dataBlock     *DataBlock
 	dataBlockSize int
+	MinKey        []byte
+	MaxKey        []byte
 }
 
 func NewSSTable(filename string) *SSTable {
 	sst := &SSTable{
-		filename:   filename,
+		Filename:   filename,
 		dataBlocks: list.New(),
 	}
 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0666)

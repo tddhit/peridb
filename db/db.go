@@ -14,62 +14,69 @@ import (
 const (
 	MAX_MEMTABLE_SIZE   = 128
 	LEVEL0_SSTABLE_SIZE = 64
+	MAX_NUM_LEVEL       = 7
 )
 
 type DB struct {
-	mem            *skiplist.SkipList
-	imm            *skiplist.SkipList
-	seq            uint32
-	compactionChan chan struct{}
-	tableCaches    map[string]struct {
-		file  *os.File
-		cache *cache.TableCache
-	}
-	blockCaches map[string]*cache.BlockCache
-	levels      map[string]struct {
-		minKey, maxKey []byte
+	manifest     *os.File
+	mem          *skiplist.SkipList
+	imm          *skiplist.SkipList
+	sstableId    int
+	tableCacheId int
+	tableCaches  map[string]*cache.TableCache
+	blockCaches  map[string]*cache.BlockCache
+	levels       [MAX_NUM_LEVEL][]struct {
+		filename string
+		level    int
+		minKey   []byte
+		maxKey   []byte
 	}
 }
 
 func New() *DB {
 	db := &DB{
-		mem:            skiplist.New(),
-		seq:            1,
-		compactionChan: make(chan struct{}, 1),
+		mem:         skiplist.New(),
+		tableCaches: make(map[string]*cache.TableCache),
+		blockCaches: make(map[string]*cache.BlockCache),
 	}
 	return db
-}
-
-func (db *DB) Close() {
-	select {
-	case <-db.compactionChan:
-		log.Debug("close.")
-	}
 }
 
 func (db *DB) Get(key []byte) (value []byte, err error) {
 	if db.mem != nil {
 		value = db.mem.Get(key)
 	}
-	if value == nil && db.imm != nil {
+	if value != nil {
+		return
+	}
+	if db.imm != nil {
 		value = db.imm.Get(key)
 	}
-	if value == nil {
-		for i := 0; i < levels; i++ {
-			levelCache := levels[i]
-			for k, v := range levelCache {
-				if bytes.Compare(key, v.minKey) != -1 && bytes.Compare(key, v.MaxKey) != 1 {
-					if tableCache, ok := tableCaches[k]; ok {
-					} else {
-						tc := NewTableCache(k)
-						cacheId = tc.Get(key)
-						if blockCache, ok := blockCaches[cacheId]; ok {
-							value := blockCache.Get(key)
-						} else {
-						}
-					}
-				}
+	if value != nil {
+		return
+	}
+	for i := 0; i < len(db.levels); i++ {
+		level := db.levels[i]
+		for _, v := range level {
+			if bytes.Compare(key, v.minKey) == -1 || bytes.Compare(key, v.maxKey) == 1 {
+				continue
 			}
+			var (
+				tc *cache.TableCache
+				bc *cache.BlockCache
+			)
+			if tc, ok := db.tableCaches[v.filename]; !ok {
+				tc = cache.NewTableCache(v.filename, db.tableCacheId)
+				db.tableCacheId++
+				db.tableCaches[v.filename] = tc
+			}
+			offset, size := tc.Get(key)
+			blockId := fmt.Sprintf("%d_%d", tc.CacheId, offset)
+			if bc, ok := db.blockCaches[blockId]; !ok {
+				bc = cache.NewBlockCache(tc.File, offset, size)
+				db.blockCaches[blockId] = bc
+			}
+			value = bc.Get(key)
 		}
 	}
 	return
@@ -103,8 +110,8 @@ func (db *DB) bgCompaction() {
 
 func (db *DB) compactMemTable() {
 	size := 0
-	filename := fmt.Sprintf("sst_%d", db.seq)
-	db.seq++
+	filename := fmt.Sprintf("sst_%d", db.sstableId)
+	db.sstableId++
 	sst := table.NewSSTable(filename)
 	iter := db.imm.Iterator()
 	for iter.First(); !iter.End(); iter.Next() {
@@ -118,23 +125,17 @@ func (db *DB) compactMemTable() {
 			log.Debug("equal sst:", tsize, LEVEL0_SSTABLE_SIZE)
 			sst.Add(iter.Key(), iter.Value())
 			sst.Finish()
-			db.levels[sst.filename] = struct {
-				minKey []byte
-				maxKey []byte
-			}{sst.minKey, sst.maxKey}
-			filename := fmt.Sprintf("sst_%d", db.seq)
-			db.seq++
+			db.save(sst)
+			filename := fmt.Sprintf("sst_%d", db.sstableId)
+			db.sstableId++
 			sst = table.NewSSTable(filename)
 			size = 0
 		} else {
 			log.Debug("more sst:", tsize, LEVEL0_SSTABLE_SIZE)
 			sst.Finish()
-			db.levels[sst.filename] = struct {
-				minKey []byte
-				maxKey []byte
-			}{sst.minKey, sst.maxKey}
-			filename := fmt.Sprintf("sst_%d", db.seq)
-			db.seq++
+			db.save(sst)
+			filename := fmt.Sprintf("sst_%d", db.sstableId)
+			db.sstableId++
 			sst = table.NewSSTable(filename)
 			sst.Add(iter.Key(), iter.Value())
 			size = len(iter.Key()) + len(iter.Value()) + 8
@@ -142,9 +143,17 @@ func (db *DB) compactMemTable() {
 	}
 	if sst != nil {
 		sst.Finish()
-		db.levels[sst.filename] = struct {
-			minKey []byte
-			maxKey []byte
-		}{sst.minKey, sst.maxKey}
+		db.save(sst)
 	}
+}
+
+func (db *DB) save(sst *table.SSTable) {
+	db.levels[sst.Level] = append(db.levels[sst.Level], struct {
+		filename       string
+		level          int
+		minKey, maxKey []byte
+	}{sst.Filename, sst.Level, sst.MinKey, sst.MaxKey})
+	record := fmt.Sprintf("level_%d,%s,%s,%s\n", sst.Level, sst.Filename, sst.MinKey, sst.MaxKey)
+	db.manifest.WriteString(record)
+	db.manifest.Sync()
 }
