@@ -31,23 +31,19 @@ func (b *IndexBlock) Add(key []byte, offset, size uint32) {
 		log.Fatal(err)
 	}
 	b.writer.Write(buf.Bytes())
-	log.Debug(buf.Bytes())
 	buf = new(bytes.Buffer)
 	err = binary.Write(buf, binary.LittleEndian, uint32(offset))
 	if err != nil {
 		log.Fatal(err)
 	}
 	b.writer.Write(buf.Bytes())
-	log.Debug(buf.Bytes())
 	buf = new(bytes.Buffer)
 	err = binary.Write(buf, binary.LittleEndian, uint32(size))
 	if err != nil {
 		log.Fatal(err)
 	}
 	b.writer.Write(buf.Bytes())
-	log.Debug(buf.Bytes())
 	b.writer.Write(key)
-	log.Debug(string(key))
 	b.size += uint32(len(key)) + 12
 }
 

@@ -3,9 +3,10 @@ package cache
 import (
 	"bytes"
 	"encoding/binary"
-	"log"
 	"os"
 	"sort"
+
+	"github.com/tddhit/tools/log"
 )
 
 type TableCache struct {
@@ -29,6 +30,7 @@ func NewTableCache(filename string, cacheId int) *TableCache {
 		log.Fatal(err)
 	}
 	tc.File = file
+	tc.fill()
 	return tc
 }
 
